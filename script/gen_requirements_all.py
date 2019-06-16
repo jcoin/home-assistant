@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Generate an updated requirements_all.txt."""
-import fnmatch
 import importlib
 import os
+import pathlib
 import pkgutil
 import re
 import sys
 
-from script.manifest.requirements import gather_requirements_from_manifests
+from script.hassfest.model import Integration
 
 COMMENT_REQUIREMENTS = (
     'Adafruit-DHT',
@@ -41,13 +41,18 @@ COMMENT_REQUIREMENTS = (
 )
 
 TEST_REQUIREMENTS = (
+    'adguardhome',
+    'ambiclimate',
     'aioambient',
     'aioautomatic',
     'aiobotocore',
+    'aioesphomeapi',
     'aiohttp_cors',
     'aiohue',
     'aiounifi',
+    'aioswitcher',
     'apns2',
+    'aprslib',
     'av',
     'axis',
     'caldav',
@@ -56,12 +61,16 @@ TEST_REQUIREMENTS = (
     'dsmr_parser',
     'eebrightbox',
     'emulated_roku',
+    'enocean',
     'ephem',
     'evohomeclient',
     'feedparser-homeassistant',
     'foobot_async',
     'geojson_client',
+    'geopy',
     'georss_generic_client',
+    'georss_ign_sismologia_client',
+    'google-api-python-client',
     'gTTS-token',
     'ha-ffmpeg',
     'hangups',
@@ -74,6 +83,7 @@ TEST_REQUIREMENTS = (
     'home-assistant-frontend',
     'homekit[IP]',
     'homematicip',
+    'httplib2',
     'influxdb',
     'jsonpath',
     'libpurecool',
@@ -81,12 +91,15 @@ TEST_REQUIREMENTS = (
     'luftdaten',
     'mbddns',
     'mficlient',
+    'netdisco',
     'numpy',
+    'oauth2client',
     'paho-mqtt',
     'pexpect',
     'pilight',
     'pmsensor',
     'prometheus_client',
+    'ptvsd',
     'pushbullet.py',
     'py-canary',
     'pyblackbird',
@@ -94,7 +107,9 @@ TEST_REQUIREMENTS = (
     'pydispatcher',
     'pyheos',
     'pyhomematic',
+    'pyiqvia',
     'pylitejet',
+    'pymfy',
     'pymonoprice',
     'pynx584',
     'pyopenuv',
@@ -137,15 +152,9 @@ TEST_REQUIREMENTS = (
     'vultr',
     'YesssSMS',
     'ruamel.yaml',
+    'zeroconf',
     'zigpy-homeassistant',
     'bellows-homeassistant',
-)
-
-IGNORE_PACKAGES = (
-    'homeassistant.components.hangouts.hangups_utils',
-    'homeassistant.components.cloud.client',
-    'homeassistant.components.homekit.*',
-    'homeassistant.components.recorder.models',
 )
 
 IGNORE_PIN = ('colorlog>2.1,<3', 'keyring>=9.3,<10.0', 'urllib3')
@@ -171,10 +180,6 @@ pycrypto==1000000000.0.0
 
 # Contains code to modify Home Assistant to work around our rules
 python-systemair-savecair==1000000000.0.0
-
-# Newer version causes pylint to take forever
-# https://github.com/timothycrosley/isort/issues/848
-isort==4.3.4
 """
 
 
@@ -204,6 +209,22 @@ def core_requirements():
     return re.findall(r"'(.*?)'", reqs_raw)
 
 
+def gather_recursive_requirements(domain, seen=None):
+    """Recursively gather requirements from a module."""
+    if seen is None:
+        seen = set()
+
+    seen.add(domain)
+    integration = Integration(pathlib.Path(
+        'homeassistant/components/{}'.format(domain)
+    ))
+    integration.load_manifest()
+    reqs = set(integration.manifest['requirements'])
+    for dep_domain in integration.manifest['dependencies']:
+        reqs.update(gather_recursive_requirements(dep_domain, seen))
+    return reqs
+
+
 def comment_requirement(req):
     """Comment out requirement. Some don't install on all systems."""
     return any(ign in req for ign in COMMENT_REQUIREMENTS)
@@ -215,7 +236,7 @@ def gather_modules():
 
     errors = []
 
-    gather_requirements_from_manifests(process_requirements, errors, reqs)
+    gather_requirements_from_manifests(errors, reqs)
     gather_requirements_from_modules(errors, reqs)
 
     for key in reqs:
@@ -225,10 +246,31 @@ def gather_modules():
     if errors:
         print("******* ERROR")
         print("Errors while importing: ", ', '.join(errors))
-        print("Make sure you import 3rd party libraries inside methods.")
         return None
 
     return reqs
+
+
+def gather_requirements_from_manifests(errors, reqs):
+    """Gather all of the requirements from manifests."""
+    integrations = Integration.load_dir(pathlib.Path(
+        'homeassistant/components'
+    ))
+    for domain in sorted(integrations):
+        integration = integrations[domain]
+
+        if not integration.manifest:
+            errors.append(
+                'The manifest for component {} is invalid.'.format(domain)
+            )
+            continue
+
+        process_requirements(
+            errors,
+            integration.manifest['requirements'],
+            'homeassistant.components.{}'.format(domain),
+            reqs
+        )
 
 
 def gather_requirements_from_modules(errors, reqs):
@@ -239,12 +281,8 @@ def gather_requirements_from_modules(errors, reqs):
         try:
             module = importlib.import_module(package)
         except ImportError as err:
-            for pattern in IGNORE_PACKAGES:
-                if fnmatch.fnmatch(package, pattern):
-                    break
-            else:
-                print("{}: {}".format(package.replace('.', '/') + '.py', err))
-                errors.append(package)
+            print("{}: {}".format(package.replace('.', '/') + '.py', err))
+            errors.append(package)
             continue
 
         if getattr(module, 'REQUIREMENTS', None):
@@ -312,7 +350,8 @@ def requirements_test_output(reqs):
 
 def gather_constraints():
     """Construct output for constraint file."""
-    return '\n'.join(core_requirements() + [''])
+    return '\n'.join(sorted(core_requirements() + list(
+        gather_recursive_requirements('default_config'))) + [''])
 
 
 def write_requirements_file(data):

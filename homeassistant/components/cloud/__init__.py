@@ -4,7 +4,7 @@ import logging
 import voluptuous as vol
 
 from homeassistant.auth.const import GROUP_ID_ADMIN
-from homeassistant.components.alexa import smart_home as alexa_sh
+from homeassistant.components.alexa import const as alexa_const
 from homeassistant.components.google_assistant import const as ga_c
 from homeassistant.const import (
     CONF_MODE, CONF_NAME, CONF_REGION, EVENT_HOMEASSISTANT_START,
@@ -24,9 +24,6 @@ from .const import (
     CONF_USER_POOL_ID, DOMAIN, MODE_DEV, MODE_PROD)
 from .prefs import CloudPreferences
 
-REQUIREMENTS = ['hass-nabucasa==0.11']
-DEPENDENCIES = ['http']
-
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_MODE = MODE_PROD
@@ -36,9 +33,9 @@ SERVICE_REMOTE_DISCONNECT = 'remote_disconnect'
 
 
 ALEXA_ENTITY_SCHEMA = vol.Schema({
-    vol.Optional(alexa_sh.CONF_DESCRIPTION): cv.string,
-    vol.Optional(alexa_sh.CONF_DISPLAY_CATEGORIES): cv.string,
-    vol.Optional(alexa_sh.CONF_NAME): cv.string,
+    vol.Optional(alexa_const.CONF_DESCRIPTION): cv.string,
+    vol.Optional(alexa_const.CONF_DISPLAY_CATEGORIES): cv.string,
+    vol.Optional(CONF_NAME): cv.string,
 })
 
 GOOGLE_ENTITY_SCHEMA = vol.Schema({
@@ -64,7 +61,6 @@ CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
         vol.Optional(CONF_MODE, default=DEFAULT_MODE):
             vol.In([MODE_DEV, MODE_PROD]),
-        # Change to optional when we include real servers
         vol.Optional(CONF_COGNITO_CLIENT_ID): str,
         vol.Optional(CONF_USER_POOL_ID): str,
         vol.Optional(CONF_REGION): str,
@@ -123,6 +119,9 @@ async def async_delete_cloudhook(hass, webhook_id: str) -> None:
 def async_remote_ui_url(hass) -> str:
     """Get the remote UI URL."""
     if not async_is_logged_in(hass):
+        raise CloudNotAvailable
+
+    if not hass.data[DOMAIN].remote.instance_domain:
         raise CloudNotAvailable
 
     return "https://" + hass.data[DOMAIN].remote.instance_domain
@@ -192,7 +191,12 @@ async def async_setup(hass, config):
     hass.helpers.service.async_register_admin_service(
         DOMAIN, SERVICE_REMOTE_DISCONNECT, _service_handler)
 
+    async def _on_connect():
+        """Discover RemoteUI binary sensor."""
+        hass.async_create_task(hass.helpers.discovery.async_load_platform(
+            'binary_sensor', DOMAIN, {}, config))
+
+    cloud.iot.register_on_connect(_on_connect)
+
     await http_api.async_setup(hass)
-    hass.async_create_task(hass.helpers.discovery.async_load_platform(
-        'binary_sensor', DOMAIN, {}, config))
     return True
