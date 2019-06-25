@@ -1,9 +1,4 @@
-"""
-Support for Cameras with FFmpeg as decoder.
-
-For more details about this platform, please refer to the documentation at
-https://home-assistant.io/components/camera.ffmpeg/
-"""
+"""Support for Cameras with FFmpeg as decoder."""
 import asyncio
 import logging
 
@@ -18,8 +13,6 @@ import homeassistant.helpers.config_validation as cv
 from . import CONF_EXTRA_ARGUMENTS, CONF_INPUT, DATA_FFMPEG
 
 _LOGGER = logging.getLogger(__name__)
-
-DEPENDENCIES = ['ffmpeg']
 
 DEFAULT_NAME = 'FFmpeg'
 DEFAULT_ARGUMENTS = "-pred 1"
@@ -54,8 +47,7 @@ class FFmpegCamera(Camera):
         """Return supported features."""
         return SUPPORT_STREAM
 
-    @property
-    def stream_source(self):
+    async def stream_source(self):
         """Return the stream source."""
         return self._input.split(' ')[-1]
 
@@ -66,7 +58,7 @@ class FFmpegCamera(Camera):
 
         image = await asyncio.shield(ffmpeg.get_image(
             self._input, output_format=IMAGE_JPEG,
-            extra_cmd=self._extra_arguments), loop=self.hass.loop)
+            extra_cmd=self._extra_arguments))
         return image
 
     async def handle_async_mjpeg_stream(self, request):

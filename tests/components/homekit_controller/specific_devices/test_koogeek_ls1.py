@@ -1,6 +1,5 @@
 """Make sure that existing Koogeek LS1 support isn't broken."""
 
-import os
 from datetime import timedelta
 from unittest import mock
 
@@ -19,8 +18,7 @@ LIGHT_ON = ('lightbulb', 'on')
 
 async def test_koogeek_ls1_setup(hass):
     """Test that a Koogeek LS1 can be correctly setup in HA."""
-    profile_path = os.path.join(os.path.dirname(__file__), 'koogeek_ls1.json')
-    accessories = setup_accessories_from_file(profile_path)
+    accessories = await setup_accessories_from_file(hass, 'koogeek_ls1.json')
     pairing = await setup_test_accessories(hass, accessories)
 
     entity_registry = await hass.helpers.entity_registry.async_get_registry()
@@ -40,6 +38,15 @@ async def test_koogeek_ls1_setup(hass):
         SUPPORT_BRIGHTNESS | SUPPORT_COLOR
     )
 
+    device_registry = await hass.helpers.device_registry.async_get_registry()
+
+    device = device_registry.async_get(entry.device_id)
+    assert device.manufacturer == 'Koogeek'
+    assert device.name == 'Koogeek-LS1-20833F'
+    assert device.model == 'LS1'
+    assert device.sw_version == '2.2.15'
+    assert device.hub_device_id is None
+
 
 @pytest.mark.parametrize('failure_cls', [
     AccessoryDisconnectedError, EncryptionError
@@ -50,8 +57,7 @@ async def test_recover_from_failure(hass, utcnow, failure_cls):
 
     See https://github.com/home-assistant/home-assistant/issues/18949
     """
-    profile_path = os.path.join(os.path.dirname(__file__), 'koogeek_ls1.json')
-    accessories = setup_accessories_from_file(profile_path)
+    accessories = await setup_accessories_from_file(hass, 'koogeek_ls1.json')
     pairing = await setup_test_accessories(hass, accessories)
 
     helper = Helper(hass, 'light.koogeek_ls1_20833f', pairing, accessories[0])

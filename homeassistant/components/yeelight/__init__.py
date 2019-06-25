@@ -4,6 +4,7 @@ import logging
 from datetime import timedelta
 
 import voluptuous as vol
+from yeelight import Bulb, BulbException
 from homeassistant.components.discovery import SERVICE_YEELIGHT
 from homeassistant.const import CONF_DEVICES, CONF_NAME, CONF_SCAN_INTERVAL, \
     CONF_HOST, ATTR_ENTITY_ID
@@ -16,13 +17,11 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import track_time_interval
 
-REQUIREMENTS = ['yeelight==0.4.4']
-
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "yeelight"
 DATA_YEELIGHT = DOMAIN
-DATA_UPDATED = '{}_data_updated'.format(DOMAIN)
+DATA_UPDATED = 'yeelight_{}_data_updated'
 
 DEFAULT_NAME = 'Yeelight'
 DEFAULT_TRANSITION = 350
@@ -134,7 +133,7 @@ def setup(hass, config):
     discovery.listen(hass, SERVICE_YEELIGHT, device_discovered)
 
     def update(event):
-        for device in yeelight_data.values():
+        for device in list(yeelight_data.values()):
             device.update()
 
     track_time_interval(
@@ -185,16 +184,14 @@ class YeelightDevice:
     @property
     def bulb(self):
         """Return bulb device."""
-        import yeelight
         if self._bulb_device is None:
             try:
-                self._bulb_device = yeelight.Bulb(self._ipaddr,
-                                                  model=self._model)
+                self._bulb_device = Bulb(self._ipaddr, model=self._model)
                 # force init for type
                 self.update()
 
                 self._available = True
-            except yeelight.BulbException as ex:
+            except BulbException as ex:
                 self._available = False
                 _LOGGER.error("Failed to connect to bulb %s, %s: %s",
                               self._ipaddr, self._name, ex)
@@ -241,43 +238,31 @@ class YeelightDevice:
 
     def turn_on(self, duration=DEFAULT_TRANSITION, light_type=None):
         """Turn on device."""
-        import yeelight
-
-        if not light_type:
-            light_type = yeelight.enums.LightType.Main
-
         try:
             self.bulb.turn_on(duration=duration, light_type=light_type)
-        except yeelight.BulbException as ex:
+        except BulbException as ex:
             _LOGGER.error("Unable to turn the bulb on: %s", ex)
             return
 
     def turn_off(self, duration=DEFAULT_TRANSITION, light_type=None):
         """Turn off device."""
-        import yeelight
-
-        if not light_type:
-            light_type = yeelight.enums.LightType.Main
-
         try:
             self.bulb.turn_off(duration=duration, light_type=light_type)
-        except yeelight.BulbException as ex:
+        except BulbException as ex:
             _LOGGER.error("Unable to turn the bulb off: %s", ex)
             return
 
     def update(self):
         """Read new properties from the device."""
-        import yeelight
-
         if not self.bulb:
             return
 
         try:
             self.bulb.get_properties(UPDATE_REQUEST_PROPERTIES)
             self._available = True
-        except yeelight.BulbException as ex:
+        except BulbException as ex:
             if self._available:  # just inform once
                 _LOGGER.error("Unable to update bulb status: %s", ex)
             self._available = False
 
-        dispatcher_send(self._hass, DATA_UPDATED, self._ipaddr)
+        dispatcher_send(self._hass, DATA_UPDATED.format(self._ipaddr))
